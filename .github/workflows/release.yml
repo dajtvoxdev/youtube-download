@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+            ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
+            args: ''
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+            ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin'
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+            ytdlp_bin: src-tauri/binaries/yt-dlp-aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+            ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Download yt-dlp sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries
+          Invoke-WebRequest -Uri "${{ matrix.ytdlp_url }}" -OutFile "${{ matrix.ytdlp_bin }}"
+
+      - name: Download yt-dlp sidecar (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          mkdir -p src-tauri/binaries
+          curl -L "${{ matrix.ytdlp_url }}" -o "${{ matrix.ytdlp_bin }}"
+          chmod +x "${{ matrix.ytdlp_bin }}"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'VideoDownload ${{ github.ref_name }}'
+          releaseBody: |
+            ## VideoDownload ${{ github.ref_name }}
+
+            Cross-platform video downloader for YouTube, Facebook, TikTok, and 1000+ sites.
+
+            **yt-dlp is bundled — no separate install required.**
+
+            ### Installation
+            - **Windows**: Download `.msi` or setup `.exe`
+            - **macOS**: Download `.dmg`
+            - **Linux**: Download `.AppImage` or `.deb`
+
+            ### Supported sites
+            YouTube, Facebook, TikTok, Instagram, Twitter/X, and [1000+ more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

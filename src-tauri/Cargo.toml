@@ -1,0 +1,25 @@
+[package]
+name = "video-download"
+version = "0.1.0"
+description = "VideoDownload - Cross-platform video downloader"
+authors = []
+edition = "2021"
+
+[lib]
+name = "tauri_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+regex = "1"
+anyhow = "1"
