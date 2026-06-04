@@ -161,7 +161,18 @@ pub fn spawn_download(
 
         emit_progress(&app, &job_id, "downloading", 0.0, "", "", opts.title.clone(), None);
 
-        let result = run_download(&app, &job_id, &opts, &ytdlp_path, ffmpeg_path.as_deref(), &cookie_source, cancel_rx).await;
+        let cancel_rx_2 = cancel_rx.clone();
+        let mut result = run_download(&app, &job_id, &opts, &ytdlp_path, ffmpeg_path.as_deref(), &cookie_source, cancel_rx).await;
+
+        if let Err(ref e) = result {
+            let msg = e.to_string();
+            if cookie_source == "chrome" && (msg.contains("cookie") || msg.contains("Cookie") || msg.contains("DPAPI") || msg.contains("Could not copy")) {
+                emit_progress(&app, &job_id, "downloading", 0.0, "", "", opts.title.clone(), Some("Chrome đang mở, thử Edge...".to_string()));
+                result = run_download(&app, &job_id, &opts, &ytdlp_path, ffmpeg_path.as_deref(), "edge", cancel_rx_2).await;
+            }
+        }
+
+        let result = result;
 
         let (status, error_msg) = match &result {
             Ok(_) => {
