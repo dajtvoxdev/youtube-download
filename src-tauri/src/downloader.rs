@@ -225,7 +225,8 @@ async fn run_download(
     let mut cmd = Command::new(ytdlp_path);
     cmd.args(&args)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stderr(std::process::Stdio::piped())
+        .env("PYTHONUNBUFFERED", "1");
     #[cfg(windows)]
     {
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
