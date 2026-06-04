@@ -22,7 +22,6 @@ pub async fn probe_formats(
         ]);
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     let output = cmd.output()
@@ -149,7 +148,6 @@ pub async fn check_ytdlp(ytdlp_path: String) -> Result<String, String> {
     cmd.arg("--version");
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
     let output = cmd.output()
@@ -220,7 +218,6 @@ async fn get_current_version(ytdlp_path: &str) -> Result<String, String> {
     cmd.arg("--version");
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
     let output = cmd.output().await.map_err(|e| e.to_string())?;
@@ -359,12 +356,12 @@ pub async fn update_ytdlp(app: AppHandle, state: State<'_, AppState>) -> Result<
     }
 
     std::fs::rename(&temp_path, &target_path)
-        .or_else(|_| {
+        .or_else(|_: std::io::Error| {
             std::fs::copy(&temp_path, &target_path)?;
             let _ = std::fs::remove_file(&temp_path);
-            Ok(())
+            Ok::<(), std::io::Error>(())
         })
-        .map_err(|e| format!("Không thể thay thế file: {}. Hãy đóng mọi tiến trình yt-dlp đang chạy.", e))?;
+        .map_err(|e: std::io::Error| format!("Không thể thay thế file: {}. Hãy đóng mọi tiến trình yt-dlp đang chạy.", e))?;
 
     emit_progress(100.0, "Hoàn tất!");
     Ok(format!("Đã cập nhật yt-dlp lên phiên bản {}", latest_version))
