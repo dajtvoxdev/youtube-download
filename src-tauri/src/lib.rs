@@ -114,6 +114,8 @@ pub fn run() {
             commands::get_ffmpeg_path,
             commands::check_ytdlp_update,
             commands::update_ytdlp,
+            commands::check_app_update,
+            commands::open_release_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

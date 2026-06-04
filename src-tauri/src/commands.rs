@@ -366,3 +366,65 @@ pub async fn update_ytdlp(app: AppHandle, state: State<'_, AppState>) -> Result<
     emit_progress(100.0, "Hoàn tất!");
     Ok(format!("Đã cập nhật yt-dlp lên phiên bản {}", latest_version))
 }
+
+#[derive(Serialize, Clone)]
+pub struct AppUpdateInfo {
+    pub current_version: String,
+    pub latest_version: String,
+    pub update_available: bool,
+    pub release_url: String,
+    pub release_notes: String,
+}
+
+#[tauri::command]
+pub async fn check_app_update() -> Result<AppUpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+
+    let client = reqwest::Client::builder()
+        .user_agent("video-download-app")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp: serde_json::Value = client
+        .get("https://api.github.com/repos/dajtvoxdev/youtube-download/releases/latest")
+        .send()
+        .await
+        .map_err(|e| format!("Không thể kiểm tra bản cập nhật: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Lỗi parse response: {}", e))?;
+
+    let latest = resp["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim_start_matches('v')
+        .to_string();
+
+    let release_url = resp["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/dajtvoxdev/youtube-download/releases/latest")
+        .to_string();
+
+    let release_notes = resp["body"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    let update_available = !latest.is_empty() && latest != current;
+
+    Ok(AppUpdateInfo {
+        current_version: current,
+        latest_version: latest,
+        update_available,
+        release_url,
+        release_notes,
+    })
+}
+
+#[tauri::command]
+pub async fn open_release_page(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| e.to_string())
+}

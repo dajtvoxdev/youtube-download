@@ -116,6 +116,8 @@
   let updatingYtdlp = $state(false);
   let updateProgress = $state<{ percent: number; status: string } | null>(null);
 
+  let appUpdateInfo = $state<{ current: string; latest: string; available: boolean; releaseUrl: string; releaseNotes: string } | null>(null);
+
   let downloads = $state<Record<string, DownloadState>>({});
   let history = $state<DownloadRecord[]>([]);
   let showHistory = $state(true);
@@ -174,6 +176,14 @@
     audioFormat = settings.audio_format;
     history = await invoke<DownloadRecord[]>('get_history');
     ffmpegPath = await invoke<string | null>('get_ffmpeg_path');
+
+    invoke<{ current_version: string; latest_version: string; update_available: boolean; release_url: string; release_notes: string }>('check_app_update')
+      .then(info => {
+        if (info.update_available) {
+          appUpdateInfo = { current: info.current_version, latest: info.latest_version, available: true, releaseUrl: info.release_url, releaseNotes: info.release_notes };
+        }
+      })
+      .catch(() => {});
 
     unlisten = await listen<ProgressPayload>('download-progress', (event) => {
       const p = event.payload;
@@ -327,6 +337,26 @@
       showToast(String(e), 'error');
     } finally {
       updatingYtdlp = false;
+    }
+  }
+
+  async function checkForAppUpdate() {
+    try {
+      const info = await invoke<{ current_version: string; latest_version: string; update_available: boolean; release_url: string; release_notes: string }>('check_app_update');
+      if (info.update_available) {
+        appUpdateInfo = { current: info.current_version, latest: info.latest_version, available: true, releaseUrl: info.release_url, releaseNotes: info.release_notes };
+      } else {
+        showToast('Bạn đang dùng phiên bản mới nhất', 'info');
+        appUpdateInfo = null;
+      }
+    } catch (e) {
+      showToast(String(e), 'error');
+    }
+  }
+
+  async function openReleasePage() {
+    if (appUpdateInfo?.releaseUrl) {
+      await invoke('open_release_page', { url: appUpdateInfo.releaseUrl });
     }
   }
 
@@ -547,6 +577,18 @@
       </button>
     </div>
   </header>
+
+  {#if appUpdateInfo?.available}
+    <div class="app-update-banner">
+      <div class="app-update-content">
+        <span>🆕 Có bản mới <strong>v{appUpdateInfo.latest}</strong> (hiện tại: v{appUpdateInfo.current})</span>
+        <div class="app-update-actions">
+          <button class="btn-primary btn-sm" onclick={openReleasePage}>Tải về</button>
+          <button class="btn-ghost btn-sm" onclick={() => (appUpdateInfo = null)}>Bỏ qua</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <main>
     <!-- URL Input -->
@@ -1583,5 +1625,31 @@
     font-weight: 600;
     text-decoration: underline;
     padding: 0;
+  }
+
+  .app-update-banner {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+    border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+    padding: 10px 20px;
+  }
+  :global(body[data-theme="light"]) .app-update-banner {
+    background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+    border-bottom-color: rgba(99, 102, 241, 0.15);
+  }
+  .app-update-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text);
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  .app-update-content strong { color: var(--accent); }
+  .app-update-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
   }
 </style>

@@ -1,6 +1,6 @@
 [package]
 name = "video-download"
-version = "0.1.0"
+version = "0.2.0"
 description = "VideoDownload - Cross-platform video downloader"
 authors = []
 edition = "2021"
