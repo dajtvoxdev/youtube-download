@@ -725,6 +725,9 @@
                         • <span class="error-text">{record.error_msg.slice(0, 60)}</span>
                       {/if}
                     </span>
+                    {#if record.output_path}
+                      <span class="history-path" title={record.output_path}>📁 {record.output_path}</span>
+                    {/if}
                   </div>
                 </div>
                 {#if record.output_path}
@@ -1289,6 +1292,19 @@
     font-size: 11px;
     color: var(--text-subtle);
     margin-top: 2px;
+  }
+
+  .history-path {
+    font-size: 10px;
+    color: var(--text-subtle);
+    margin-top: 2px;
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 400px;
+    display: block;
+    cursor: default;
   }
 
   .error-text { color: #ef4444; }

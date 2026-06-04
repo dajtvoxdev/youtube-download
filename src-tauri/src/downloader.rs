@@ -244,6 +244,8 @@ async fn run_download(
 
     let dest_re = Regex::new(r"\[download\] Destination: (.+)").unwrap();
     let merge_re = Regex::new(r#"Merging formats into "(.+)""#).unwrap();
+    let already_re = Regex::new(r"\[download\] (.+?) has already been downloaded").unwrap();
+    let dest_dir = format!("{}", opts.output_dir);
 
     loop {
         tokio::select! {
@@ -267,6 +269,10 @@ async fn run_download(
                             if let Some(caps) = dest_re.captures(&line) {
                                 last_output_path = Some(caps[1].trim().to_string());
                             }
+                        } else if line.contains("has already been downloaded") {
+                            if let Some(caps) = already_re.captures(&line) {
+                                last_output_path = Some(caps[1].trim().to_string());
+                            }
                         }
                     }
                     Ok(None) => break,
@@ -275,6 +281,11 @@ async fn run_download(
             }
             result = stderr_lines.next_line() => {
                 if let Ok(Some(line)) = result {
+                    if line.contains("[download] Destination:") {
+                        if let Some(caps) = dest_re.captures(&line) {
+                            last_output_path = Some(caps[1].trim().to_string());
+                        }
+                    }
                     if !line.trim().is_empty() {
                         stderr_buf.push_str(&line);
                         stderr_buf.push('\n');
@@ -288,6 +299,26 @@ async fn run_download(
     if !exit_status.success() {
         let err = stderr_buf.trim().to_string();
         return Err(anyhow::anyhow!("{}", if err.is_empty() { "Download failed".to_string() } else { err }));
+    }
+
+    if last_output_path.is_none() || last_output_path.as_deref() == Some("") {
+        if let Ok(entries) = std::fs::read_dir(&dest_dir) {
+            let mut newest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        if let Ok(modified) = meta.modified() {
+                            if newest.is_none() || modified > newest.as_ref().unwrap().1 {
+                                newest = Some((entry.path(), modified));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((path, _)) = newest {
+                last_output_path = Some(path.to_string_lossy().to_string());
+            }
+        }
     }
 
     Ok(last_output_path.unwrap_or_default())
