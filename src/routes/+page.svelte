@@ -499,7 +499,7 @@
           </select>
           <button class="btn-secondary" onclick={pickCookieFile}>Chọn file</button>
         </div>
-        <span class="hint">Dùng khi tải video Facebook/Instagram cần đăng nhập. Nếu Chrome đang mở, app sẽ tự dùng Edge. Hoặc export cookies.txt từ extension.</span>
+        <span class="hint">Đăng nhập Facebook trên Chrome, rồi chọn "Tự động (Chrome)". Nếu Chrome đang mở → đóng Chrome rồi tải lại, hoặc export cookies.txt bằng extension <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener">Get cookies.txt LOCALLY</a>.</span>
         {#if settingsForm.cookie_source.startsWith('file:')}
           <span class="hint hint-ok">✓ Đã chọn: {settingsForm.cookie_source.slice(5).split(/[/\\]/).pop()}</span>
         {/if}
