@@ -71,6 +71,8 @@ pub struct AppSettings {
     pub max_concurrent: usize,
     pub audio_format: String,
     pub filename_template: String,
+    #[serde(default)]
+    pub cookie_source: String,
 }
 
 impl Default for AppSettings {
@@ -85,6 +87,7 @@ impl Default for AppSettings {
             max_concurrent: 2,
             audio_format: "mp3".to_string(),
             filename_template: "%(title)s.%(ext)s".to_string(),
+            cookie_source: String::new(),
         }
     }
 }

@@ -12,6 +12,7 @@ pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
     pub history: Arc<Mutex<Vec<DownloadRecord>>>,
     pub app_data_dir: String,
+    pub ffmpeg_path: Arc<Mutex<Option<String>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -69,11 +70,29 @@ pub fn run() {
             let max_concurrent = settings.max_concurrent;
             let history = DownloadRecord::load_all(&app_data_dir).unwrap_or_default();
 
+            let mut ffmpeg_path: Option<String> = None;
+            let ffmpeg_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            let resource_path = app.path().resource_dir().ok();
+            let ff_candidates = [
+                exe_dir.as_ref().map(|d| d.join(ffmpeg_name)),
+                resource_path.as_ref().map(|d| d.join(ffmpeg_name)),
+            ];
+            for candidate in ff_candidates.iter().flatten() {
+                if candidate.exists() {
+                    ffmpeg_path = Some(candidate.to_string_lossy().to_string());
+                    break;
+                }
+            }
+
             app.manage(AppState {
                 manager: Arc::new(Mutex::new(DownloadManager::new(max_concurrent))),
                 settings: Arc::new(Mutex::new(settings)),
                 history: Arc::new(Mutex::new(history)),
                 app_data_dir,
+                ffmpeg_path: Arc::new(Mutex::new(ffmpeg_path)),
             });
 
             Ok(())
@@ -85,12 +104,16 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::pick_output_dir,
+            commands::pick_cookie_file,
             commands::get_history,
             commands::clear_history,
             commands::check_ytdlp,
             commands::open_file,
             commands::file_exists,
             commands::open_folder,
+            commands::get_ffmpeg_path,
+            commands::check_ytdlp_update,
+            commands::update_ytdlp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

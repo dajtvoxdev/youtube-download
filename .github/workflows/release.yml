@@ -19,21 +19,29 @@ jobs:
             target: x86_64-pc-windows-msvc
             ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
             ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+            ffmpeg_bin: src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
             args: ''
           - platform: macos-latest
             target: x86_64-apple-darwin
             ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
             ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-apple-darwin
+            ffmpeg_url: https://evermeet.cx/ffmpeg/getrelease/zip
+            ffmpeg_bin: src-tauri/binaries/ffmpeg-x86_64-apple-darwin
             args: '--target x86_64-apple-darwin'
           - platform: macos-latest
             target: aarch64-apple-darwin
             ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
             ytdlp_bin: src-tauri/binaries/yt-dlp-aarch64-apple-darwin
+            ffmpeg_url: https://evermeet.cx/ffmpeg/getrelease/zip
+            ffmpeg_bin: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
             args: '--target aarch64-apple-darwin'
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             ytdlp_url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
             ytdlp_bin: src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+            ffmpeg_bin: src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -44,7 +52,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xz-utils
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -76,6 +84,35 @@ jobs:
           curl -L "${{ matrix.ytdlp_url }}" -o "${{ matrix.ytdlp_bin }}"
           chmod +x "${{ matrix.ytdlp_bin }}"
 
+      - name: Download ffmpeg sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "${{ matrix.ffmpeg_url }}" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-extract"
+          $ffmpegExe = Get-ChildItem -Path "ffmpeg-extract" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName "${{ matrix.ffmpeg_bin }}"
+          Remove-Item -Recurse -Force "ffmpeg.zip", "ffmpeg-extract"
+
+      - name: Download ffmpeg sidecar (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          curl -L "${{ matrix.ffmpeg_url }}" -o "ffmpeg.zip"
+          unzip -o "ffmpeg.zip" -d "ffmpeg-extract"
+          cp ffmpeg-extract/ffmpeg "${{ matrix.ffmpeg_bin }}"
+          chmod +x "${{ matrix.ffmpeg_bin }}"
+          rm -rf "ffmpeg.zip" "ffmpeg-extract"
+
+      - name: Download ffmpeg sidecar (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          curl -L "${{ matrix.ffmpeg_url }}" -o "ffmpeg.tar.xz"
+          mkdir -p ffmpeg-extract
+          tar -xf ffmpeg.tar.xz -C ffmpeg-extract --strip-components=1
+          cp ffmpeg-extract/bin/ffmpeg "${{ matrix.ffmpeg_bin }}"
+          chmod +x "${{ matrix.ffmpeg_bin }}"
+          rm -rf "ffmpeg.tar.xz" "ffmpeg-extract"
+
       - name: Install frontend dependencies
         run: npm install
 
@@ -91,12 +128,14 @@ jobs:
 
             Cross-platform video downloader for YouTube, Facebook, TikTok, and 1000+ sites.
 
-            **yt-dlp is bundled — no separate install required.**
-
             ### Installation
             - **Windows**: Download `.msi` or setup `.exe`
             - **macOS**: Download `.dmg`
             - **Linux**: Download `.AppImage` or `.deb`
+
+            ### Features
+            - Bundled yt-dlp + ffmpeg — no external dependencies needed
+            - Auto-update yt-dlp from within the app
 
             ### Supported sites
             YouTube, Facebook, TikTok, Instagram, Twitter/X, and [1000+ more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).

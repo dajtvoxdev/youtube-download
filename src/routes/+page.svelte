@@ -62,7 +62,15 @@
     max_concurrent: number;
     audio_format: string;
     filename_template: string;
+    cookie_source: string;
   }
+
+  const COOKIE_OPTIONS = [
+    { label: 'Không dùng', value: '' },
+    { label: 'Tự động (Chrome)', value: 'chrome' },
+    { label: 'Tự động (Edge)', value: 'edge' },
+    { label: 'Tự động (Firefox)', value: 'firefox' },
+  ];
 
   // --- Constants ---
   const QUALITY_PRESETS = [
@@ -72,6 +80,14 @@
     { label: '720p', value: 'bestvideo[height<=720]+bestaudio/best[height<=720]', height: 720 },
     { label: '480p', value: 'bestvideo[height<=480]+bestaudio/best[height<=480]', height: 480 },
     { label: '360p', value: 'bestvideo[height<=360]+bestaudio/best[height<=360]', height: 360 },
+  ];
+
+  const QUALITY_PRESETS_NO_FFMPEG = [
+    { label: 'Best Available', value: 'best', height: 9999 },
+    { label: '1080p', value: 'best[height<=1080]', height: 1080 },
+    { label: '720p', value: 'best[height<=720]', height: 720 },
+    { label: '480p', value: 'best[height<=480]', height: 480 },
+    { label: '360p', value: 'best[height<=360]', height: 360 },
   ];
 
   const AUDIO_FORMATS = ['mp3', 'm4a', 'opus', 'wav', 'aac'];
@@ -93,6 +109,12 @@
   let settingsForm = $state<AppSettings | null>(null);
   let ytdlpVersion = $state('');
   let savingSettings = $state(false);
+  let ffmpegPath = $state<string | null>(null);
+
+  let updateInfo = $state<{ current: string; latest: string; available: boolean } | null>(null);
+  let checkingUpdate = $state(false);
+  let updatingYtdlp = $state(false);
+  let updateProgress = $state<{ percent: number; status: string } | null>(null);
 
   let downloads = $state<Record<string, DownloadState>>({});
   let history = $state<DownloadRecord[]>([]);
@@ -116,10 +138,12 @@
   let unlisten: UnlistenFn | undefined;
 
   // --- Derived ---
+  let qualityPresets = $derived(ffmpegPath ? QUALITY_PRESETS : QUALITY_PRESETS_NO_FFMPEG);
+
   let availablePresets = $derived(
     videoInfo?.max_height
-      ? QUALITY_PRESETS.filter(p => p.height === 9999 || p.height <= (videoInfo?.max_height ?? 0))
-      : [QUALITY_PRESETS[0]]
+      ? qualityPresets.filter(p => p.height === 9999 || p.height <= (videoInfo?.max_height ?? 0))
+      : [qualityPresets[0]]
   );
 
   let activeDownloads = $derived(
@@ -149,6 +173,7 @@
     settings = await invoke<AppSettings>('get_settings');
     audioFormat = settings.audio_format;
     history = await invoke<DownloadRecord[]>('get_history');
+    ffmpegPath = await invoke<string | null>('get_ffmpeg_path');
 
     unlisten = await listen<ProgressPayload>('download-progress', (event) => {
       const p = event.payload;
@@ -174,6 +199,10 @@
         }, 4000);
       }
     });
+
+    listen<{ percent: number; status: string }>('ytdlp-update-progress', (event) => {
+      updateProgress = event.payload;
+    });
   });
 
   onDestroy(() => unlisten?.());
@@ -194,7 +223,7 @@
     probing = true;
     probeError = '';
     videoInfo = null;
-    selectedQuality = 'bestvideo+bestaudio/best';
+    selectedQuality = ffmpegPath ? 'bestvideo+bestaudio/best' : 'best';
     audioOnly = false;
     try {
       videoInfo = await invoke<VideoInfo>('probe_formats', { url: trimmed });
@@ -243,6 +272,11 @@
     if (dir && settingsForm) settingsForm = { ...settingsForm, output_dir: dir };
   }
 
+  async function pickCookieFile() {
+    const path = await invoke<string | null>('pick_cookie_file');
+    if (path && settingsForm) settingsForm = { ...settingsForm, cookie_source: path };
+  }
+
   async function openSettings() {
     if (settings) {
       settingsForm = { ...settings };
@@ -261,6 +295,38 @@
       ytdlpVersion = await invoke<string>('check_ytdlp', { ytdlpPath: settingsForm.ytdlp_path });
     } catch {
       ytdlpVersion = 'Not found';
+    }
+  }
+
+  async function checkYtdlpUpdate() {
+    checkingUpdate = true;
+    updateInfo = null;
+    try {
+      const info = await invoke<{ current_version: string; latest_version: string; update_available: boolean }>('check_ytdlp_update');
+      updateInfo = { current: info.current_version, latest: info.latest_version, available: info.update_available };
+      if (!info.update_available) {
+        showToast('yt-dlp đã là phiên bản mới nhất', 'info');
+      }
+    } catch (e) {
+      showToast(String(e), 'error');
+    } finally {
+      checkingUpdate = false;
+    }
+  }
+
+  async function startYtdlpUpdate() {
+    updatingYtdlp = true;
+    updateProgress = { percent: 0, status: 'Bắt đầu...' };
+    try {
+      const result = await invoke<string>('update_ytdlp');
+      showToast(result, 'info');
+      updateProgress = null;
+      updateInfo = null;
+      ytdlpVersion = await invoke<string>('check_ytdlp', { ytdlpPath: settingsForm!.ytdlp_path });
+    } catch (e) {
+      showToast(String(e), 'error');
+    } finally {
+      updatingYtdlp = false;
     }
   }
 
@@ -354,6 +420,58 @@
           <span class="hint" class:hint-ok={ytdlpVersion !== 'Not found'} class:hint-err={ytdlpVersion === 'Not found'}>
             {ytdlpVersion === 'Not found' ? '✕ Không tìm thấy' : `✓ Phiên bản ${ytdlpVersion}`}
           </span>
+        {/if}
+        <div class="ytdlp-update-section">
+          {#if !updateInfo && !updatingYtdlp}
+            <button class="btn-ghost" onclick={checkYtdlpUpdate} disabled={checkingUpdate}>
+              {checkingUpdate ? 'Đang kiểm tra...' : 'Kiểm tra bản cập nhật'}
+            </button>
+          {/if}
+          {#if updateInfo}
+            {#if updateInfo.available}
+              <div class="update-banner">
+                <span>Có bản mới: <strong>v{updateInfo.latest}</strong> (hiện tại: v{updateInfo.current})</span>
+                <button class="btn-primary btn-sm" onclick={startYtdlpUpdate} disabled={updatingYtdlp}>
+                  {updatingYtdlp ? 'Đang cập nhật...' : 'Cập nhật ngay'}
+                </button>
+              </div>
+            {:else}
+              <span class="hint hint-ok">✓ yt-dlp đã là phiên bản mới nhất (v{updateInfo.latest})</span>
+            {/if}
+          {/if}
+          {#if updateProgress}
+            <div class="update-progress">
+              <div class="update-progress-bar" style="width: {updateProgress.percent}%"></div>
+              <span class="update-progress-text">{updateProgress.status}</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>FFmpeg</label>
+        <span class="hint" class:hint-ok={ffmpegPath !== null} class:hint-err={ffmpegPath === null}>
+          {#if ffmpegPath}
+            ✓ Đã tìm thấy: <span class="mono">{ffmpegPath.split(/[/\\]/).pop()}</span>
+          {:else}
+            ✕ Không tìm thấy ffmpeg — video sẽ chỉ tải được chất lượng thấp hơn (không merge được video+audio riêng)
+          {/if}
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label for="s-cookies">Cookies (cho Facebook, cần đăng nhập)</label>
+        <div class="input-row">
+          <select id="s-cookies" bind:value={settingsForm.cookie_source} class="flex-1">
+            {#each COOKIE_OPTIONS as opt}
+              <option value={opt.value}>{opt.label}</option>
+            {/each}
+          </select>
+          <button class="btn-secondary" onclick={pickCookieFile}>Chọn file</button>
+        </div>
+        <span class="hint">Dùng khi tải video Facebook/Instagram cần đăng nhập. Hãy đăng nhập Facebook trên browser trước.</span>
+        {#if settingsForm.cookie_source.startsWith('file:')}
+          <span class="hint hint-ok">✓ Đã chọn: {settingsForm.cookie_source.slice(5).split(/[/\\]/).pop()}</span>
         {/if}
       </div>
 
@@ -481,6 +599,11 @@
         </div>
 
         <div class="download-controls">
+          {#if !ffmpegPath && !audioOnly}
+            <div class="ffmpeg-warning">
+              <span>⚠ Không tìm thấy ffmpeg — chất lượng video bị giới hạn (không merge được video+audio). Vào <button class="link-btn" onclick={openSettings}>Cài đặt</button> để kiểm tra.</span>
+            </div>
+          {/if}
           <div class="controls-row">
             <div class="control-group">
               <label for="dl-quality">Chất lượng</label>
@@ -1306,6 +1429,46 @@
   .hint { font-size: 11px; color: var(--text-subtle); }
   .hint-ok { color: #22c55e; }
   .hint-err { color: #ef4444; }
+  .mono { font-family: monospace; font-size: 11px; background: var(--border); padding: 1px 4px; border-radius: 3px; }
+
+  .ytdlp-update-section { margin-top: 8px; }
+  .update-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .update-banner strong { color: var(--accent); }
+  .btn-sm { padding: 4px 12px; font-size: 11px; border-radius: 6px; }
+  .update-progress {
+    position: relative;
+    margin-top: 8px;
+    height: 22px;
+    background: var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .update-progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 6px;
+    transition: width 0.3s ease;
+  }
+  .update-progress-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--text);
+    font-weight: 500;
+  }
 
   /* ==================== History File Buttons ==================== */
   .history-actions-btns {
@@ -1379,5 +1542,30 @@
   @keyframes toast-out {
     from { opacity: 1; }
     to   { opacity: 0; }
+  }
+
+  .ffmpeg-warning {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #f59e0b;
+    margin-bottom: 8px;
+  }
+  :global(body[data-theme="light"]) .ffmpeg-warning {
+    background: #fffbeb;
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #b45309;
+  }
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    padding: 0;
   }
 </style>

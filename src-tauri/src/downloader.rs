@@ -58,7 +58,7 @@ fn emit_progress(app: &AppHandle, job_id: &str, status: &str, percent: f64, spee
     });
 }
 
-fn build_args(opts: &DownloadOptions) -> Vec<String> {
+fn build_args(opts: &DownloadOptions, cookie_source: &str) -> Vec<String> {
     let mut args = vec![];
 
     if opts.audio_only {
@@ -70,6 +70,17 @@ fn build_args(opts: &DownloadOptions) -> Vec<String> {
         args.push(opts.format_id.clone());
         args.push("--merge-output-format".to_string());
         args.push("mp4".to_string());
+    }
+
+    if !cookie_source.is_empty() {
+        if cookie_source.starts_with("file:") {
+            let path = &cookie_source[5..];
+            args.push("--cookies".to_string());
+            args.push(path.to_string());
+        } else {
+            args.push("--cookies-from-browser".to_string());
+            args.push(cookie_source.to_string());
+        }
     }
 
     args.push("--newline".to_string());
@@ -117,6 +128,8 @@ pub fn spawn_download(
     job_id: String,
     opts: DownloadOptions,
     ytdlp_path: String,
+    ffmpeg_path: Option<String>,
+    cookie_source: String,
 ) {
     let (cancel_tx, cancel_rx) = watch::channel(false);
 
@@ -148,7 +161,7 @@ pub fn spawn_download(
 
         emit_progress(&app, &job_id, "downloading", 0.0, "", "", opts.title.clone(), None);
 
-        let result = run_download(&app, &job_id, &opts, &ytdlp_path, cancel_rx).await;
+        let result = run_download(&app, &job_id, &opts, &ytdlp_path, ffmpeg_path.as_deref(), &cookie_source, cancel_rx).await;
 
         let (status, error_msg) = match &result {
             Ok(_) => {
@@ -198,15 +211,27 @@ async fn run_download(
     job_id: &str,
     opts: &DownloadOptions,
     ytdlp_path: &str,
+    ffmpeg_path: Option<&str>,
+    cookie_source: &str,
     mut cancel_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<String> {
-    let args = build_args(opts);
+    let mut args = build_args(opts, cookie_source);
 
-    let mut child = Command::new(ytdlp_path)
-        .args(&args)
+    if let Some(ffpath) = ffmpeg_path {
+        args.push("--ffmpeg-location".to_string());
+        args.push(ffpath.to_string());
+    }
+
+    let mut cmd = Command::new(ytdlp_path);
+    cmd.args(&args)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let mut child = cmd.spawn()
         .map_err(|e| anyhow::anyhow!("Failed to start yt-dlp: {}. Make sure yt-dlp is installed.", e))?;
 
     let stdout = child.stdout.take().unwrap();
